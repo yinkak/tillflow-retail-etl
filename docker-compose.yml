@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: tillflow-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tillflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tillflow}
+      POSTGRES_DB: ${POSTGRES_DB:-retail}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tillflow} -d ${POSTGRES_DB:-retail}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: tillflow-azurite
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite-data:/data
+
+volumes:
+  pgdata:
+  azurite-data:
