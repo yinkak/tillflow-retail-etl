@@ -57,15 +57,15 @@ The database layers follow the **medallion pattern**: `raw` = bronze, `staging` 
 
 | Phase | What it covers | Status |
 | --- | --- | --- |
-| 0 · Accounts & safety | Azure subscription, cost budget alert, Azure CLI login, dataset downloaded | ✅ Done |
-| 1 · Project scaffold | Repo, Python packaging, dependency locking, pre-commit quality gates | 🟡 In progress |
-| 2 · Azure Data Lake | Resource group, ADLS Gen2 storage account, containers, role-based access | ⬜ Next |
-| 3 · Extract | Chunked reads from the lake (real Azure or local emulator) | ⬜ Planned |
-| 4 · Validate | pandera schema, quarantine with reasons | ⬜ Planned |
-| 5 · Load | Bulk `COPY` into Postgres, idempotent reruns, load log | ⬜ Planned |
-| 6 · SQL transforms | Silver + gold tables with CTEs and window functions | ⬜ Planned |
-| 7 · Tests & CI | GitHub Actions with Postgres + Azurite service containers | ⬜ Planned |
-| 8 · Publish | Measured results, screenshots, release v1.0.0 | ⬜ Planned |
+| 0 · Accounts & safety | Azure subscription, cost budget alert, Azure CLI login, dataset downloaded | Done |
+| 1 · Project scaffold | Repo, Python packaging, dependency locking, pre-commit quality gates | In progress |
+| 2 · Azure Data Lake | Resource group, ADLS Gen2 storage account, containers, role-based access |  Next |
+| 3 · Extract | Chunked reads from the lake (real Azure or local emulator) | Planned |
+| 4 · Validate | pandera schema, quarantine with reasons | Planned |
+| 5 · Load | Bulk `COPY` into Postgres, idempotent reruns, load log |  Planned |
+| 6 · SQL transforms | Silver + gold tables with CTEs and window functions |  Planned |
+| 7 · Tests & CI | GitHub Actions with Postgres + Azurite service containers |  Planned |
+| 8 · Publish | Measured results, screenshots, release v1.0.0 |  Planned |
 
 ### Completed so far
 
