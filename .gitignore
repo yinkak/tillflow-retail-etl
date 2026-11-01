@@ -224,3 +224,4 @@ __marimo__/
 data/
 *.csv.gz
 *.xlsx
+.DS_Store
