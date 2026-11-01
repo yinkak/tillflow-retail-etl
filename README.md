@@ -27,7 +27,7 @@ TillFlow does all four on a real dataset and documents the engineering decisions
 
 ```mermaid
 flowchart TD
-    subgraph LAKE["Azure Data Lake Storage Gen2 · Canada Central"]
+    subgraph LAKE["Azure Data Lake Storage Gen2 · West US"]
         RAW["raw/<br/>original Excel file, never changed"]
         LANDING["landing/<br/>yearly CSV.gz files the pipeline reads"]
     end
