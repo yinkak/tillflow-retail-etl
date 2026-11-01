@@ -93,7 +93,7 @@ Every commit is checked automatically before it is accepted:
 | **File-size guard** (1 MB limit)         | Accidentally committing the dataset or other large files                                    |
 | **YAML / TOML checks, whitespace fixes** | Broken config files and messy diffs                                                         |
 
-**Phase 2 · Azure Data Lake** ✅
+**Phase 2 · Azure Data Lake**
 
 - Created an **Azure Data Lake Storage Gen2** account (`stretailyk01`) with hierarchical namespace enabled, public access blocked, HTTPS-only traffic and encryption at rest
 - Set up two containers following a raw/landing pattern:
