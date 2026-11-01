@@ -15,7 +15,7 @@ It is built the way a production data team would build it: reproducible environm
 Most companies keep raw data in cloud storage that analysts can't use directly. Someone has to build a reliable pipeline that:
 
 1. **Extracts** files from the data lake without running out of memory
-2. **Validates** every row and sets bad rows aside *with a reason*, instead of silently dropping them
+2. **Validates** every row and sets bad rows aside _with a reason_, instead of silently dropping them
 3. **Loads** clean data into a database safely, so re-running never creates duplicates
 4. **Transforms** it into tables analysts can actually use (customer value, purchase habits, revenue trends)
 
@@ -57,25 +57,27 @@ The database layers follow the **medallion pattern**: `raw` = bronze, `staging` 
 
 ## Progress
 
-| Phase | What it covers | Status |
-| --- | --- | --- |
-| 0 · Accounts & safety | Azure subscription, cost budget alert, Azure CLI login, dataset downloaded | Done |
-| 1 · Project scaffold | Repo, Python packaging, dependency locking, pre-commit quality gates | In progress |
-| 2 · Azure Data Lake | Resource group, ADLS Gen2 storage account, containers, role-based access |  Next |
-| 3 · Extract | Chunked reads from the lake (real Azure or local emulator) | Planned |
-| 4 · Validate | pandera schema, quarantine with reasons | Planned |
-| 5 · Load | Bulk `COPY` into Postgres, idempotent reruns, load log |  Planned |
-| 6 · SQL transforms | Silver + gold tables with CTEs and window functions |  Planned |
-| 7 · Tests & CI | GitHub Actions with Postgres + Azurite service containers |  Planned |
-| 8 · Publish | Measured results, screenshots, release v1.0.0 |  Planned |
+| Phase                 | What it covers                                                             | Status  |
+| --------------------- | -------------------------------------------------------------------------- | ------- |
+| 0 · Accounts & safety | Azure subscription, cost budget alert, Azure CLI login, dataset downloaded | Done    |
+| 1 · Project scaffold  | Repo, Python packaging, dependency locking, pre-commit quality gates       | Done    |
+| 2 · Azure Data Lake   | Resource group, ADLS Gen2 storage account, containers, role-based access   | Done    |
+| 3 · Extract           | Chunked reads from the lake (real Azure or local emulator)                 | Planned |
+| 4 · Validate          | pandera schema, quarantine with reasons                                    | Planned |
+| 5 · Load              | Bulk `COPY` into Postgres, idempotent reruns, load log                     | Planned |
+| 6 · SQL transforms    | Silver + gold tables with CTEs and window functions                        | Planned |
+| 7 · Tests & CI        | GitHub Actions with Postgres + Azurite service containers                  | Planned |
+| 8 · Publish           | Measured results, screenshots, release v1.0.0                              | Planned |
 
 ### Completed so far
 
 **Cloud setup**
+
 - Azure subscription provisioned with a **budget alert** created before any resources, so spending is monitored from day one
 - Azure CLI authenticated through **Microsoft Entra ID** (organizational login), so the pipeline will reach the data lake with the developer's identity instead of storing account keys
 
 **Project foundations**
+
 - Python 3.12 project managed with **uv**, with all dependencies pinned in a lockfile (`uv.lock`) for reproducible installs
 - Installable package using the **`src/` layout** (`src/tillflow_retail_etl/`)
 - Every change made on a **feature branch and merged through a pull request**
@@ -84,26 +86,49 @@ The database layers follow the **medallion pattern**: `raw` = bronze, `staging` 
 
 Every commit is checked automatically before it is accepted:
 
-| Hook | What it protects against |
-| --- | --- |
-| **Ruff** (lint + format) | Style issues, unused imports, common bug patterns |
-| **gitleaks** | Committing passwords, tokens or keys (verified by confirming it blocks a fake GitHub token) |
-| **File-size guard** (1 MB limit) | Accidentally committing the dataset or other large files |
-| **YAML / TOML checks, whitespace fixes** | Broken config files and messy diffs |
+| Hook                                     | What it protects against                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Ruff** (lint + format)                 | Style issues, unused imports, common bug patterns                                           |
+| **gitleaks**                             | Committing passwords, tokens or keys (verified by confirming it blocks a fake GitHub token) |
+| **File-size guard** (1 MB limit)         | Accidentally committing the dataset or other large files                                    |
+| **YAML / TOML checks, whitespace fixes** | Broken config files and messy diffs                                                         |
+
+**Phase 2 · Azure Data Lake** ✅
+
+- Created an **Azure Data Lake Storage Gen2** account (`stretailyk01`) with hierarchical namespace enabled, public access blocked, HTTPS-only traffic and encryption at rest
+- Set up two containers following a raw/landing pattern:
+  - `raw/`: the original Excel file, never modified
+  - `landing/`: pipeline-ready, gzip-compressed CSVs (one per year)
+- Granted **least-privilege access**: the _Storage Blob Data Contributor_ role, scoped to this storage account only. All uploads and reads use **Microsoft Entra ID login**, with no account keys stored anywhere
+- Converted the source Excel file to CSV once with [`scripts/convert_xlsx.py`](scripts/convert_xlsx.py), keeping every value as text so nothing is altered before validation
+- Verified the full dataset landed intact:
+
+| File                             | Rows                                            |
+| -------------------------------- | ----------------------------------------------- |
+| `online_retail_2009_2010.csv.gz` | 525,461                                         |
+| `online_retail_2010_2011.csv.gz` | 541,910                                         |
+| **Total**                        | **1,067,371** (matches the UCI published count) |
+
+This total is the pipeline's baseline: every later stage must account for all 1,067,371 rows as either loaded or quarantined.
+
+- Confirmed **identity-based access from Python**: read the landing files directly from the lake using `DefaultAzureCredential`
+
+![Dataset file in the Azure Data Lake landing container](docs/img/azure-blob-properties.png)
+_The 2009–2010 file in the `landing` container: 7 MB compressed, server-side encrypted, with an ETag the pipeline will use to detect changes._
 
 ---
 
 ## Tech stack
 
-| Area | Tools | Role |
-| --- | --- | --- |
-| Cloud | **Azure Data Lake Storage Gen2**, Microsoft Entra ID, Azure CLI, Cost Management | Data lake, identity-based access, cost control |
-| Language & packaging | **Python 3.12**, uv | Pipeline code, reproducible environments |
-| Data processing | pandas, **pandera** | Chunked reading, row-level validation |
-| Database | **PostgreSQL 16**, psycopg 3, **SQL** (CTEs, window functions) | Storage, bulk loading, transformations |
-| Local infrastructure | **Docker Compose**, Azurite (Azure storage emulator) | Run the full pipeline locally with no cloud account |
-| Quality | pytest, **Ruff**, **pre-commit**, **gitleaks** | Tests, linting, secret scanning |
-| CI | **GitHub Actions** | Automated checks on every push |
+| Area                 | Tools                                                                            | Role                                                |
+| -------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Cloud                | **Azure Data Lake Storage Gen2**, Microsoft Entra ID, Azure CLI, Cost Management | Data lake, identity-based access, cost control      |
+| Language & packaging | **Python 3.12**, uv                                                              | Pipeline code, reproducible environments            |
+| Data processing      | pandas, **pandera**                                                              | Chunked reading, row-level validation               |
+| Database             | **PostgreSQL 16**, psycopg 3, **SQL** (CTEs, window functions)                   | Storage, bulk loading, transformations              |
+| Local infrastructure | **Docker Compose**, Azurite (Azure storage emulator)                             | Run the full pipeline locally with no cloud account |
+| Quality              | pytest, **Ruff**, **pre-commit**, **gitleaks**                                   | Tests, linting, secret scanning                     |
+| CI                   | **GitHub Actions**                                                               | Automated checks on every push                      |
 
 **Bold** = already in use in the repo. The rest is set up in later phases.
 
@@ -158,6 +183,8 @@ Short write-ups of real problems solved along the way:
 
 - **Editable install silently ignored on macOS.** Python 3.12 skips `.pth` files flagged as hidden, and iCloud Desktop sync was setting that flag on the project's install link, so `import tillflow_retail_etl` failed even though the package built. Diagnosed with `ls -lO`, fixed by moving the project out of iCloud-synced storage.
 - **Secrets never touch the repo.** Cloud access uses the developer's Entra ID login rather than account keys, and gitleaks blocks any commit that contains a credential.
+
+- **Azure CLI not found” from Python.** The CLI was installed as a shell alias, which subprocesses can’t see. DefaultAzureCredential looks for az on PATH, so I replaced the alias with a symlink in ~/.local/bin
 
 ---
 

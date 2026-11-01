@@ -225,3 +225,4 @@ data/
 *.csv.gz
 *.xlsx
 .DS_Store
+notes.txt
