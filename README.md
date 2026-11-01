@@ -1,5 +1,7 @@
 # TillFlow — Retail Data Pipeline (Azure Data Lake → PostgreSQL)
 
+![CI](https://github.com/yinkak/tillflow-retail-etl/actions/workflows/ci.yml/badge.svg)
+
 > **Status: in progress.** Project foundations are complete; the pipeline itself is being built in phases. See [Progress](#progress) for exactly what is done and what is next.
 
 TillFlow is an end-to-end **ETL pipeline** that moves **1M+ real retail transactions** from an **Azure Data Lake** into **PostgreSQL**, validates every row, and turns the data into business-ready tables with SQL.
