@@ -123,6 +123,19 @@ _The 2009–2010 file in the `landing` container: 7 MB compressed, server-side e
 - Full extract from the Data Lake: **2 files, 22 chunks, 1,067,371 rows in about 2 seconds**, an exact match with the baseline
 - Integration tests against Azurite check file listing and uneven chunk boundaries
 
+**Phase 4 · Validate**
+
+- **Profiled all 1,067,371 rows first** ([`scripts/profile_data.py`](scripts/profile_data.py)) before writing any rules. Key findings:
+  - 23% of rows have no customer ID (guest purchases): allowed
+  - 34,335 exact duplicate rows: kept in bronze, to be removed in silver
+  - Negative quantities on non-cancellation invoices (stock write-offs) and 5 negative-price "bad debt" adjustments: valid accounting events, classified later in SQL rather than rejected
+  - Non-product stock codes (`POST`, `BANK CHARGES`, `AMAZONFEE`…) and inconsistent country names (`EIRE`, `RSA`): flagged for staging
+- **Design principle:** validation rejects data that is *broken*; staging classifies data that is *valid but different*
+- Built a [pandera](https://pandera.readthedocs.io/) schema in [`validate.py`](src/tillflow_retail_etl/validate.py): invoice format, non-zero integer quantities, parseable dates, 5-digit customer IDs, and negative prices only on adjustment invoices
+- Failing rows go to quarantine **with a reason per rule broken**, keeping their original values
+- **Result on the full dataset:** 1,067,371 read = 1,067,371 valid + 0 quarantined, in 1.4 seconds
+- 16 unit tests: valid-but-unusual rows pass, each broken-data rule fires, and rows in always equal rows valid + quarantined
+
 ---
 
 ## Tech stack
