@@ -136,6 +136,17 @@ _The 2009–2010 file in the `landing` container: 7 MB compressed, server-side e
 - **Result on the full dataset:** 1,067,371 read = 1,067,371 valid + 0 quarantined, in 1.4 seconds
 - 16 unit tests: valid-but-unusual rows pass, each broken-data rule fires, and rows in always equal rows valid + quarantined
 
+**Phase 5 · Load**
+
+- Created the database with idempotent SQL ([`sql/ddl/`](sql/ddl/)): `raw` (bronze), `staging`, `marts` and `ops` schemas; `raw.transactions` keeps **lineage** (source file + load ID) on every row, and `NUMERIC` keeps prices exact
+- Built [`load.py`](src/tillflow_retail_etl/load.py) and [`pipeline.py`](src/tillflow_retail_etl/pipeline.py), run with `make etl`:
+  - **Bulk loads with Postgres `COPY`**, one 50,000-row chunk at a time
+  - **One transaction per file**: a crash mid-file rolls back completely, with no partial loads
+  - **Idempotent reruns**: an ETag-based load log skips files already loaded, and changed files are replaced, never duplicated
+  - Every run (success, skipped or failed) is recorded in `ops.load_log`; rejected rows go to `ops.quarantine` with their original values and reason
+- **Full load from Azure: 1,067,371 rows in ~20 seconds.** A rerun skips both files in 0.1 seconds with zero duplicates
+- 4 integration tests against real Postgres prove skip-if-unchanged, replace-if-changed, **rollback on a mid-file crash**, and quarantine
+
 ---
 
 ## Tech stack
