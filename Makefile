@@ -49,3 +49,5 @@ etl: ## Run the pipeline: extract, validate, load into Postgres
 
 transform: ## Build silver (staging) and gold (marts) tables with SQL
 	uv run python -m tillflow_retail_etl.transform
+
+all: up db seed etl transform ## Start services, create tables, load the sample and build every table
