@@ -26,3 +26,6 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+      - name: Test
+        run: uv run pytest -m "not integration"
