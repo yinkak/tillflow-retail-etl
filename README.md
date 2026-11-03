@@ -147,6 +147,22 @@ _The 2009–2010 file in the `landing` container: 7 MB compressed, server-side e
 - **Full load from Azure: 1,067,371 rows in ~20 seconds.** A rerun skips both files in 0.1 seconds with zero duplicates
 - 4 integration tests against real Postgres prove skip-if-unchanged, replace-if-changed, **rollback on a mid-file crash**, and quarantine
 
+**Phase 6 · SQL transforms**
+
+- **Silver** ([`sql/staging/`](sql/staging/)): removes **34,335 exact duplicates** with `ROW_NUMBER()`, standardizes country names, and **classifies** every row (cancellation, bad-debt adjustment, stock write-off, non-product, product sale) instead of deleting anything
+- **Gold** ([`sql/marts/`](sql/marts/)), built with CTE chains and window functions:
+  - `customer_rfm`: recency, frequency and monetary scores (`NTILE`) for **5,852 customers**
+  - `customer_purchase_gaps`: buying rhythm per customer via `LAG()` (average gap ≈ 112 days)
+  - `monthly_revenue`: running totals and month-over-month change, with the final partial month flagged
+- All transforms run in **one transaction**, so tables update together or not at all
+- **Revenue reconciles to the cent** between silver and gold: **$19,642,676.02**
+- 6 SQL tests on a hand-built dataset with hand-calculated answers; they run inside a rolled-back transaction, so real data is never touched
+
+**Findings**
+- Strong Q4 seasonality: revenue peaks every November (**$1.45M** in Nov 2011), with a post-holiday slump each January–February
+- December 2011 looks like a 58% crash, but it contains only 9 days of data, which is why the mart flags partial months
+- Guest purchases are **23% of rows but only 13% of revenue**: guests buy noticeably less per line than identified customers
+
 ---
 
 ## Tech stack
