@@ -24,5 +24,28 @@ jobs:
       - name: Format check
         run: uv run ruff format --check .
 
-      - name: Test
-        run: uv run pytest -m "not integration"
+      - name: Start Postgres and Azurite (same compose file as local)
+        run: docker compose up -d --wait
+
+      - name: Create database tables
+        run: make db
+
+      - name: Run all tests (unit + integration)
+        run: uv run pytest
+
+      - name: End-to-end pipeline run on the sample
+        run: make seed etl transform
+
+      - name: Verify the sample landed in every layer
+        run: |
+          query() {
+            docker compose exec -T postgres psql -U tillflow -d retail -tAc "$1"
+          }
+          test "$(query 'SELECT COUNT(*) FROM raw.transactions')" = "100"
+          test "$(query 'SELECT COUNT(*) > 0 FROM staging.transactions')" = "t"
+          test "$(query 'SELECT COUNT(*) > 0 FROM marts.monthly_revenue')" = "t"
+          echo "Sample flowed through bronze, silver and gold"
+
+      - name: Show container logs if anything failed
+        if: failure()
+        run: docker compose logs
