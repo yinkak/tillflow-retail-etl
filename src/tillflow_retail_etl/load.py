@@ -47,7 +47,7 @@ def already_loaded(conn: psycopg.Connection, source_blob: str, etag: str) -> boo
 def record_skip(conn: psycopg.Connection, source_blob: str, etag: str) -> None:
     conn.execute(
         "INSERT INTO ops.load_log (source_blob, blob_etag, status, finished_at) "
-        "VALUES (%s, %s, 'skipped', now())",
+        "VALUES (%s, %s, 'skipped', clock_timestamp())",
         (source_blob, etag),
     )
     conn.commit()
@@ -66,8 +66,8 @@ def start_load(conn: psycopg.Connection, source_blob: str, etag: str) -> int:
 
 def mark_failed(conn: psycopg.Connection, load_id: int, error: str) -> None:
     conn.execute(
-        "UPDATE ops.load_log SET status = 'failed', error_message = %s, finished_at = now() "
-        "WHERE load_id = %s",
+        "UPDATE ops.load_log SET status = 'failed', error_message = %s, "
+        "finished_at = clock_timestamp() WHERE load_id = %s",
         (error[:2000], load_id),
     )
     conn.commit()
@@ -92,7 +92,7 @@ def load_file(
 
         conn.execute(
             "UPDATE ops.load_log SET status = 'success', rows_read = %s, rows_loaded = %s, "
-            "rows_quarantined = %s, finished_at = now() WHERE load_id = %s",
+            "rows_quarantined = %s, finished_at = clock_timestamp() WHERE load_id = %s",
             (rows_loaded + rows_quarantined, rows_loaded, rows_quarantined, load_id),
         )
 
