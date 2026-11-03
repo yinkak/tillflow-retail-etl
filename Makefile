@@ -28,3 +28,12 @@ lint: ## Check code style without changing files
 format: ## Auto-fix code style
 	uv run ruff check --fix .
 	uv run ruff format .
+
+extract: ## Extract landing files and report row counts (no loading yet)
+	uv run python -m tillflow_retail_etl.extract
+
+seed: ## Upload the 100-row sample to the local Azurite emulator
+	uv run python scripts/seed_azurite.py
+
+test-unit: ## Run fast tests that need no Docker services
+	uv run pytest -m "not integration"

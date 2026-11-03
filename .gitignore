@@ -226,3 +226,5 @@ data/
 *.xlsx
 .DS_Store
 notes.txt
+
+!tests/fixtures/*.csv.gz
