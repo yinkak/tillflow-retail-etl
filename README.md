@@ -62,7 +62,7 @@ The database layers follow the **medallion pattern**: `raw` = bronze, `staging` 
 | 0 · Accounts & safety | Azure subscription, cost budget alert, Azure CLI login, dataset downloaded | Done    |
 | 1 · Project scaffold  | Repo, Python packaging, dependency locking, pre-commit quality gates       | Done    |
 | 2 · Azure Data Lake   | Resource group, ADLS Gen2 storage account, containers, role-based access   | Done    |
-| 3 · Extract           | Chunked reads from the lake (real Azure or local emulator)                 | Planned |
+| 3 · Extract           | Chunked reads from the lake (real Azure or local emulator)                 | Done |
 | 4 · Validate          | pandera schema, quarantine with reasons                                    | Planned |
 | 5 · Load              | Bulk `COPY` into Postgres, idempotent reruns, load log                     | Planned |
 | 6 · SQL transforms    | Silver + gold tables with CTEs and window functions                        | Planned |
@@ -115,6 +115,13 @@ This total is the pipeline's baseline: every later stage must account for all 1,
 
 ![Dataset file in the Azure Data Lake landing container](docs/img/azure-blob-properties.png)
 _The 2009–2010 file in the `landing` container: 7 MB compressed, server-side encrypted, with an ETag the pipeline will use to detect changes._
+
+**Phase 3 · Extract** ✅
+
+- Built [`extract.py`](src/tillflow_retail_etl/extract.py): lists landing files with their **ETags** (fingerprints for safe reruns later), streams each one to disk, and reads it in **50,000-row chunks**, so memory never holds a whole file
+- Runs against **real Azure or the local Azurite emulator** with one setting (`STORAGE_MODE`), so reviewers and tests need no cloud account
+- Full extract from the Data Lake: **2 files, 22 chunks, 1,067,371 rows in about 2 seconds**, an exact match with the baseline
+- Integration tests against Azurite check file listing and uneven chunk boundaries
 
 ---
 
