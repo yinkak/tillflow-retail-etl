@@ -63,10 +63,10 @@ The database layers follow the **medallion pattern**: `raw` = bronze, `staging` 
 | 1 · Project scaffold  | Repo, Python packaging, dependency locking, pre-commit quality gates       | Done    |
 | 2 · Azure Data Lake   | Resource group, ADLS Gen2 storage account, containers, role-based access   | Done    |
 | 3 · Extract           | Chunked reads from the lake (real Azure or local emulator)                 | Done |
-| 4 · Validate          | pandera schema, quarantine with reasons                                    | Planned |
-| 5 · Load              | Bulk `COPY` into Postgres, idempotent reruns, load log                     | Planned |
-| 6 · SQL transforms    | Silver + gold tables with CTEs and window functions                        | Planned |
-| 7 · Tests & CI        | GitHub Actions with Postgres + Azurite service containers                  | Planned |
+| 4 · Validate          | pandera schema, quarantine with reasons                                    | Done |
+| 5 · Load              | Bulk `COPY` into Postgres, idempotent reruns, load log                     | Done |
+| 6 · SQL transforms    | Silver + gold tables with CTEs and window functions                        | Done |
+| 7 · Tests & CI        | GitHub Actions with Postgres + Azurite service containers                  | Done |
 | 8 · Publish           | Measured results, screenshots, release v1.0.0                              | Planned |
 
 ### Completed so far
@@ -162,6 +162,15 @@ _The 2009–2010 file in the `landing` container: 7 MB compressed, server-side e
 - Strong Q4 seasonality: revenue peaks every November (**$1.45M** in Nov 2011), with a post-holiday slump each January–February
 - December 2011 looks like a 58% crash, but it contains only 9 days of data, which is why the mart flags partial months
 - Guest purchases are **23% of rows but only 13% of revenue**: guests buy noticeably less per line than identified customers
+
+**Phase 7 · CI with real services**
+
+- GitHub Actions now starts **Postgres and Azurite with the same `docker-compose.yml` used locally**, so CI and development environments are identical
+- Every pull request runs lint, format checks, and **all 29 tests** (unit + integration against real Postgres and the Azure storage emulator)
+- An **end-to-end run** (`make seed etl transform`) loads the sample through bronze, silver and gold, then verifies row counts in each layer
+- Because CI starts from a fresh clone on a clean machine, a green run also proves the project runs for anyone, with no Azure account needed
+- `main` is protected: nothing merges unless CI passes
+- One command for reviewers: `make all`
 
 ---
 
