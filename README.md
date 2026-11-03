@@ -116,7 +116,7 @@ This total is the pipeline's baseline: every later stage must account for all 1,
 ![Dataset file in the Azure Data Lake landing container](docs/img/azure-blob-properties.png)
 _The 2009–2010 file in the `landing` container: 7 MB compressed, server-side encrypted, with an ETag the pipeline will use to detect changes._
 
-**Phase 3 · Extract** ✅
+**Phase 3 · Extract**
 
 - Built [`extract.py`](src/tillflow_retail_etl/extract.py): lists landing files with their **ETags** (fingerprints for safe reruns later), streams each one to disk, and reads it in **50,000-row chunks**, so memory never holds a whole file
 - Runs against **real Azure or the local Azurite emulator** with one setting (`STORAGE_MODE`), so reviewers and tests need no cloud account
