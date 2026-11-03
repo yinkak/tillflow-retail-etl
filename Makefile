@@ -46,3 +46,6 @@ db: ## Create schemas and tables (safe to rerun)
 
 etl: ## Run the pipeline: extract, validate, load into Postgres
 	uv run python -m tillflow_retail_etl.pipeline
+
+transform: ## Build silver (staging) and gold (marts) tables with SQL
+	uv run python -m tillflow_retail_etl.transform
