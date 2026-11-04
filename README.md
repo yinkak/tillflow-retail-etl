@@ -107,6 +107,10 @@ SELECT * FROM ops.load_log;
 
 **1. Land the data.** The source Excel file is converted once to gzipped CSVs ([`scripts/convert_xlsx.py`](scripts/convert_xlsx.py)) with every value kept as text, then uploaded to an Azure Data Lake Gen2 account: `raw/` keeps the untouched original, `landing/` holds pipeline-ready files.
 
+![Pipeline-ready files in the Azure Data Lake landing container](docs/img/azure-landing.png)
+*The `landing` container, browsed with Microsoft Entra ID (no access keys): two gzipped yearly files, about 7 MB each.*
+
+
 **2. Extract** ([`extract.py`](src/tillflow_retail_etl/extract.py)). Lists landing files with their **ETags** (content fingerprints), streams each to disk, and reads it in 50,000-row chunks, so memory never holds a whole file. One setting switches between real Azure and the local emulator.
 
 **3. Validate** ([`validate.py`](src/tillflow_retail_etl/validate.py)). A [pandera](https://pandera.readthedocs.io/) schema checks invoice format, non-zero integer quantities, parseable dates, customer ID format, and that negative prices appear only on accounting-adjustment invoices. Failing rows are quarantined **with the rule they broke and their original values**.
@@ -140,11 +144,14 @@ SELECT * FROM ops.load_log;
 
 ## Findings from the data
 
+![Monthly product revenue](docs/img/monthly-revenue.png)
+
 - **Strong Q4 seasonality.** Revenue climbs every September–November, peaking at **$1.43M (Nov 2010)** and **$1.45M (Nov 2011)**, followed by a post-holiday slump each January–February.
 - **Guests buy less.** Purchases without a customer ID are **23% of rows but only 13% of revenue** ($2.57M of $19.64M).
 - **The most valuable customers are also the most active.** The top five by spend all score **555** (most recent, most frequent, highest spending). One customer placed **373 orders**.
 - **Customers return about every 112 days** on average.
 - **The data is structurally clean but semantically messy.** Zero rows failed validation, yet 34,335 were exact duplicates, 19,104 were cancellations, 3,393 were stock write-offs, and 5,981 were postage, fees or manual entries rather than products.
+
 
 ---
 
