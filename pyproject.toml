@@ -19,6 +19,7 @@ tillflow-retail-etl = "tillflow_retail_etl:main"
 
 [dependency-groups]
 dev = [
+    "matplotlib>=3.11.2",
     "pre-commit>=4.7.0",
     "pytest>=9.2.0",
     "ruff>=0.17.3",

@@ -120,8 +120,6 @@ This total is the pipeline's baseline: every later stage must account for all 1,
 
 - Confirmed **identity-based access from Python**: read the landing files directly from the lake using `DefaultAzureCredential`
 
-![Dataset file in the Azure Data Lake landing container](img/azure-blob-properties.png)
-_The 2009–2010 file in the `landing` container: 7 MB compressed, server-side encrypted, with an ETag the pipeline will use to detect changes._
 
 **Phase 3 · Extract**
 
