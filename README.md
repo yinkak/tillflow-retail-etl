@@ -1,256 +1,244 @@
 # TillFlow — Retail Data Pipeline (Azure Data Lake → PostgreSQL)
 
 ![CI](https://github.com/yinkak/tillflow-retail-etl/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![PostgreSQL](https://img.shields.io/badge/postgres-16-336791)
 
-> **Status: in progress.** Project foundations are complete; the pipeline itself is being built in phases. See [Progress](#progress) for exactly what is done and what is next.
+An end-to-end **ETL pipeline** that moves **1,067,371 real retail transactions** from an **Azure Data Lake** into **PostgreSQL**, validates every row, and builds business-ready tables with SQL: customer value scores, purchase habits and revenue trends.
 
-TillFlow is an end-to-end **ETL pipeline** that moves **1M+ real retail transactions** from an **Azure Data Lake** into **PostgreSQL**, validates every row, and turns the data into business-ready tables with SQL.
-
-It is built the way a production data team would build it: reproducible environments, automated quality checks, secret scanning, login-based cloud access instead of stored keys, and a pull-request workflow for every change.
-
----
-
-## Why this project
-
-Most companies keep raw data in cloud storage that analysts can't use directly. Someone has to build a reliable pipeline that:
-
-1. **Extracts** files from the data lake without running out of memory
-2. **Validates** every row and sets bad rows aside _with a reason_, instead of silently dropping them
-3. **Loads** clean data into a database safely, so re-running never creates duplicates
-4. **Transforms** it into tables analysts can actually use (customer value, purchase habits, revenue trends)
-
-TillFlow does all four on a real dataset and documents the engineering decisions behind each step.
+It's built the way a production data team works: **idempotent reruns**, **transactional loads**, **identity-based cloud access (no stored keys)**, **29 automated tests**, and **CI that rebuilds the whole system from scratch on every pull request**.
 
 ---
 
-## Architecture (target design)
+## Results at a glance
+
+| Metric | Result |
+| --- | --- |
+| Rows loaded from Azure Data Lake | **1,067,371** (2 files, 22 chunks of 50,000) |
+| Full load time | **~20 seconds** |
+| Rerun on unchanged files | **0.1 seconds**, zero duplicates (ETag-based skip) |
+| Rows quarantined by validation | **0**: every unusual row was valid business data (see [Findings](#findings-from-the-data)) |
+| Exact duplicates removed in silver | **34,335** |
+| Revenue reconciliation, staging vs. marts | **$19,642,676.02**, matching to the cent |
+| Customers scored (RFM) | **5,852** |
+| Automated tests | **29** (unit + integration against real Postgres and Azure Storage emulator) |
+| CI | Lint, all tests and an end-to-end pipeline run on every PR, about 40–50 s |
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph LAKE["Azure Data Lake Storage Gen2 · West US"]
+    subgraph LAKE["Azure Data Lake Storage Gen2"]
         RAW["raw/<br/>original Excel file, never changed"]
         LANDING["landing/<br/>yearly CSV.gz files the pipeline reads"]
     end
 
-    subgraph PIPE["Python pipeline"]
+    subgraph PIPE["Python pipeline · make etl"]
         EXTRACT["Extract<br/>stream to disk, read 50,000-row chunks"]
         VALIDATE["Validate<br/>pandera rules per row"]
         LOAD["Load<br/>bulk COPY, one transaction per file"]
     end
 
-    subgraph PG["PostgreSQL (Docker)"]
+    subgraph PG["PostgreSQL 16 (Docker)"]
         OPS["Ops<br/>load_log + quarantine"]
-        BRONZE["Bronze · raw<br/>rows as in the file"]
-        SILVER["Silver · staging<br/>typed, deduplicated"]
-        GOLD["Gold · marts<br/>customer RFM, purchase gaps, monthly revenue"]
+        BRONZE["Bronze · raw<br/>rows as received + lineage"]
+        SILVER["Silver · staging<br/>deduplicated, cleaned, classified"]
+        GOLD["Gold · marts<br/>RFM, purchase gaps, monthly revenue"]
     end
 
     LANDING --> EXTRACT --> VALIDATE --> LOAD
     VALIDATE -- "bad rows + reason" --> OPS
     LOAD -- "good rows" --> BRONZE
-    BRONZE -- SQL --> SILVER -- SQL --> GOLD
+    BRONZE -- "SQL · make transform" --> SILVER -- SQL --> GOLD
 ```
 
-The database layers follow the **medallion pattern**: `raw` = bronze, `staging` = silver, `marts` = gold.
+Database layers follow the **medallion pattern**: `raw` = bronze, `staging` = silver, `marts` = gold, with pipeline bookkeeping in `ops`.
 
 ---
 
-## Progress
+## Quick start: no Azure account needed
 
-| Phase                 | What it covers                                                             | Status  |
-| --------------------- | -------------------------------------------------------------------------- | ------- |
-| 0 · Accounts & safety | Azure subscription, cost budget alert, Azure CLI login, dataset downloaded | Done    |
-| 1 · Project scaffold  | Repo, Python packaging, dependency locking, pre-commit quality gates       | Done    |
-| 2 · Azure Data Lake   | Resource group, ADLS Gen2 storage account, containers, role-based access   | Done    |
-| 3 · Extract           | Chunked reads from the lake (real Azure or local emulator)                 | Done |
-| 4 · Validate          | pandera schema, quarantine with reasons                                    | Done |
-| 5 · Load              | Bulk `COPY` into Postgres, idempotent reruns, load log                     | Done |
-| 6 · SQL transforms    | Silver + gold tables with CTEs and window functions                        | Done |
-| 7 · Tests & CI        | GitHub Actions with Postgres + Azurite service containers                  | Done |
-| 8 · Publish           | Measured results, screenshots, release v1.0.0                              | Planned |
-
-### Completed so far
-
-**Cloud setup**
-
-- Azure subscription provisioned with a **budget alert** created before any resources, so spending is monitored from day one
-- Azure CLI authenticated through **Microsoft Entra ID** (organizational login), so the pipeline will reach the data lake with the developer's identity instead of storing account keys
-
-**Project foundations**
-
-- Python 3.12 project managed with **uv**, with all dependencies pinned in a lockfile (`uv.lock`) for reproducible installs
-- Installable package using the **`src/` layout** (`src/tillflow_retail_etl/`)
-- Every change made on a **feature branch and merged through a pull request**
-
-**Automated quality gates (pre-commit)**
-
-Every commit is checked automatically before it is accepted:
-
-| Hook                                     | What it protects against                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Ruff** (lint + format)                 | Style issues, unused imports, common bug patterns                                           |
-| **gitleaks**                             | Committing passwords, tokens or keys (verified by confirming it blocks a fake GitHub token) |
-| **File-size guard** (1 MB limit)         | Accidentally committing the dataset or other large files                                    |
-| **YAML / TOML checks, whitespace fixes** | Broken config files and messy diffs                                                         |
-
-**Phase 2 · Azure Data Lake**
-
-- Created an **Azure Data Lake Storage Gen2** account (`stretailyk01`) with hierarchical namespace enabled, public access blocked, HTTPS-only traffic and encryption at rest
-- Set up two containers following a raw/landing pattern:
-  - `raw/`: the original Excel file, never modified
-  - `landing/`: pipeline-ready, gzip-compressed CSVs (one per year)
-- Granted **least-privilege access**: the _Storage Blob Data Contributor_ role, scoped to this storage account only. All uploads and reads use **Microsoft Entra ID login**, with no account keys stored anywhere
-- Converted the source Excel file to CSV once with [`scripts/convert_xlsx.py`](scripts/convert_xlsx.py), keeping every value as text so nothing is altered before validation
-- Verified the full dataset landed intact:
-
-| File                             | Rows                                            |
-| -------------------------------- | ----------------------------------------------- |
-| `online_retail_2009_2010.csv.gz` | 525,461                                         |
-| `online_retail_2010_2011.csv.gz` | 541,910                                         |
-| **Total**                        | **1,067,371** (matches the UCI published count) |
-
-This total is the pipeline's baseline: every later stage must account for all 1,067,371 rows as either loaded or quarantined.
-
-- Confirmed **identity-based access from Python**: read the landing files directly from the lake using `DefaultAzureCredential`
-
-![Dataset file in the Azure Data Lake landing container](docs/img/azure-blob-properties.png)
-_The 2009–2010 file in the `landing` container: 7 MB compressed, server-side encrypted, with an ETag the pipeline will use to detect changes._
-
-**Phase 3 · Extract**
-
-- Built [`extract.py`](src/tillflow_retail_etl/extract.py): lists landing files with their **ETags** (fingerprints for safe reruns later), streams each one to disk, and reads it in **50,000-row chunks**, so memory never holds a whole file
-- Runs against **real Azure or the local Azurite emulator** with one setting (`STORAGE_MODE`), so reviewers and tests need no cloud account
-- Full extract from the Data Lake: **2 files, 22 chunks, 1,067,371 rows in about 2 seconds**, an exact match with the baseline
-- Integration tests against Azurite check file listing and uneven chunk boundaries
-
-**Phase 4 · Validate**
-
-- **Profiled all 1,067,371 rows first** ([`scripts/profile_data.py`](scripts/profile_data.py)) before writing any rules. Key findings:
-  - 23% of rows have no customer ID (guest purchases): allowed
-  - 34,335 exact duplicate rows: kept in bronze, to be removed in silver
-  - Negative quantities on non-cancellation invoices (stock write-offs) and 5 negative-price "bad debt" adjustments: valid accounting events, classified later in SQL rather than rejected
-  - Non-product stock codes (`POST`, `BANK CHARGES`, `AMAZONFEE`…) and inconsistent country names (`EIRE`, `RSA`): flagged for staging
-- **Design principle:** validation rejects data that is *broken*; staging classifies data that is *valid but different*
-- Built a [pandera](https://pandera.readthedocs.io/) schema in [`validate.py`](src/tillflow_retail_etl/validate.py): invoice format, non-zero integer quantities, parseable dates, 5-digit customer IDs, and negative prices only on adjustment invoices
-- Failing rows go to quarantine **with a reason per rule broken**, keeping their original values
-- **Result on the full dataset:** 1,067,371 read = 1,067,371 valid + 0 quarantined, in 1.4 seconds
-- 16 unit tests: valid-but-unusual rows pass, each broken-data rule fires, and rows in always equal rows valid + quarantined
-
-**Phase 5 · Load**
-
-- Created the database with idempotent SQL ([`sql/ddl/`](sql/ddl/)): `raw` (bronze), `staging`, `marts` and `ops` schemas; `raw.transactions` keeps **lineage** (source file + load ID) on every row, and `NUMERIC` keeps prices exact
-- Built [`load.py`](src/tillflow_retail_etl/load.py) and [`pipeline.py`](src/tillflow_retail_etl/pipeline.py), run with `make etl`:
-  - **Bulk loads with Postgres `COPY`**, one 50,000-row chunk at a time
-  - **One transaction per file**: a crash mid-file rolls back completely, with no partial loads
-  - **Idempotent reruns**: an ETag-based load log skips files already loaded, and changed files are replaced, never duplicated
-  - Every run (success, skipped or failed) is recorded in `ops.load_log`; rejected rows go to `ops.quarantine` with their original values and reason
-- **Full load from Azure: 1,067,371 rows in ~20 seconds.** A rerun skips both files in 0.1 seconds with zero duplicates
-- 4 integration tests against real Postgres prove skip-if-unchanged, replace-if-changed, **rollback on a mid-file crash**, and quarantine
-
-**Phase 6 · SQL transforms**
-
-- **Silver** ([`sql/staging/`](sql/staging/)): removes **34,335 exact duplicates** with `ROW_NUMBER()`, standardizes country names, and **classifies** every row (cancellation, bad-debt adjustment, stock write-off, non-product, product sale) instead of deleting anything
-- **Gold** ([`sql/marts/`](sql/marts/)), built with CTE chains and window functions:
-  - `customer_rfm`: recency, frequency and monetary scores (`NTILE`) for **5,852 customers**
-  - `customer_purchase_gaps`: buying rhythm per customer via `LAG()` (average gap ≈ 112 days)
-  - `monthly_revenue`: running totals and month-over-month change, with the final partial month flagged
-- All transforms run in **one transaction**, so tables update together or not at all
-- **Revenue reconciles to the cent** between silver and gold: **$19,642,676.02**
-- 6 SQL tests on a hand-built dataset with hand-calculated answers; they run inside a rolled-back transaction, so real data is never touched
-
-**Findings**
-- Strong Q4 seasonality: revenue peaks every November (**$1.45M** in Nov 2011), with a post-holiday slump each January–February
-- December 2011 looks like a 58% crash, but it contains only 9 days of data, which is why the mart flags partial months
-- Guest purchases are **23% of rows but only 13% of revenue**: guests buy noticeably less per line than identified customers
-
-**Phase 7 · CI with real services**
-
-- GitHub Actions now starts **Postgres and Azurite with the same `docker-compose.yml` used locally**, so CI and development environments are identical
-- Every pull request runs lint, format checks, and **all 29 tests** (unit + integration against real Postgres and the Azure storage emulator)
-- An **end-to-end run** (`make seed etl transform`) loads the sample through bronze, silver and gold, then verifies row counts in each layer
-- Because CI starts from a fresh clone on a clean machine, a green run also proves the project runs for anyone, with no Azure account needed
-- `main` is protected: nothing merges unless CI passes
-- One command for reviewers: `make all`
-
----
-
-## Tech stack
-
-| Area                 | Tools                                                                            | Role                                                |
-| -------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Cloud                | **Azure Data Lake Storage Gen2**, Microsoft Entra ID, Azure CLI, Cost Management | Data lake, identity-based access, cost control      |
-| Language & packaging | **Python 3.12**, uv                                                              | Pipeline code, reproducible environments            |
-| Data processing      | pandas, **pandera**                                                              | Chunked reading, row-level validation               |
-| Database             | **PostgreSQL 16**, psycopg 3, **SQL** (CTEs, window functions)                   | Storage, bulk loading, transformations              |
-| Local infrastructure | **Docker Compose**, Azurite (Azure storage emulator)                             | Run the full pipeline locally with no cloud account |
-| Quality              | pytest, **Ruff**, **pre-commit**, **gitleaks**                                   | Tests, linting, secret scanning                     |
-| CI                   | **GitHub Actions**                                                               | Automated checks on every push                      |
-
-**Bold** = already in use in the repo. The rest is set up in later phases.
-
----
-
-## Dataset
-
-[**Online Retail II**](https://archive.ics.uci.edu/dataset/502/online+retail+ii) (UCI Machine Learning Repository) — about **1.07 million** real transactions from a UK-based online retailer, December 2009 to December 2011. Licensed CC BY 4.0.
-
-It is realistic and messy (cancellations, missing customer IDs, non-numeric product codes, duplicates), which makes validation and quarantine meaningful rather than theoretical.
-
-> The dataset is **not** committed to this repo. `.gitignore` and the 1 MB pre-commit guard keep it out.
-
----
-
-## Repository layout
-
-```
-tillflow-retail-etl/
-├── src/tillflow_retail_etl/   # pipeline package (modules added phase by phase)
-├── pyproject.toml             # dependencies + Ruff config
-├── uv.lock                    # pinned dependency versions
-├── .pre-commit-config.yaml    # Ruff, gitleaks, file checks
-├── .python-version            # Python 3.12
-└── README.md
-```
-
-Planned additions: `sql/` (schema and transforms), `tests/`, `scripts/`, `docker-compose.yml`, `.github/workflows/ci.yml`.
-
----
-
-## Running it (current state)
-
-Requires [uv](https://docs.astral.sh/uv/).
+**Requires:** [Docker Desktop](https://www.docker.com/products/docker-desktop/), [uv](https://docs.astral.sh/uv/) and `make`.
 
 ```bash
-git clone git@github.com:yinkak/tillflow-retail-etl.git
+git clone https://github.com/yinkak/tillflow-retail-etl.git
 cd tillflow-retail-etl
-uv sync                                   # create the environment from uv.lock
-uv run pre-commit install                 # enable the commit checks
-uv run pre-commit run --all-files         # run every quality check
-uv run python -c "import tillflow_retail_etl; print('package OK')"
+uv sync
+make all
 ```
 
-Once Phases 3–7 are complete, `make all` will run the whole pipeline locally against a storage emulator, with no Azure account needed.
+`make all` starts Postgres and **Azurite** (Microsoft's local Azure Storage emulator), creates the tables, uploads a 100-row sample, and runs the full pipeline through bronze, silver and gold. Then explore:
+
+```bash
+make psql
+```
+```sql
+SELECT * FROM marts.monthly_revenue ORDER BY month;
+SELECT * FROM marts.customer_rfm ORDER BY monetary DESC LIMIT 10;
+SELECT * FROM ops.load_log;
+```
+
+<details>
+<summary><b>Running against a real Azure Data Lake</b></summary>
+
+1. `cp .env.example .env`, then set `STORAGE_MODE=azure` and `AZURE_STORAGE_ACCOUNT=<your account>`
+2. `az login`. The pipeline authenticates with your Microsoft Entra ID identity; no keys are stored
+3. Your account needs the *Storage Blob Data Contributor* role on the storage account
+4. `make etl transform`
+
+</details>
+
+### All commands
+
+| Command | Does |
+| --- | --- |
+| `make all` | Start services, create tables, load the sample, build every table |
+| `make etl` | Extract → validate → load into Postgres |
+| `make transform` | Build silver and gold tables with SQL |
+| `make test` | All 29 tests (needs Docker); `make test-unit` for the fast ones |
+| `make lint` / `make format` | Ruff checks / auto-fix |
+| `make help` | List everything |
+
+---
+
+## How it works
+
+**1. Land the data.** The source Excel file is converted once to gzipped CSVs ([`scripts/convert_xlsx.py`](scripts/convert_xlsx.py)) with every value kept as text, then uploaded to an Azure Data Lake Gen2 account: `raw/` keeps the untouched original, `landing/` holds pipeline-ready files.
+
+**2. Extract** ([`extract.py`](src/tillflow_retail_etl/extract.py)). Lists landing files with their **ETags** (content fingerprints), streams each to disk, and reads it in 50,000-row chunks, so memory never holds a whole file. One setting switches between real Azure and the local emulator.
+
+**3. Validate** ([`validate.py`](src/tillflow_retail_etl/validate.py)). A [pandera](https://pandera.readthedocs.io/) schema checks invoice format, non-zero integer quantities, parseable dates, customer ID format, and that negative prices appear only on accounting-adjustment invoices. Failing rows are quarantined **with the rule they broke and their original values**.
+
+**4. Load** ([`load.py`](src/tillflow_retail_etl/load.py)). Valid rows are bulk-loaded with Postgres `COPY`. Each file loads in **one transaction**, and every run (success, skipped or failed) is recorded in `ops.load_log`.
+
+**5. Transform** ([`sql/`](sql/)). Silver removes duplicates with `ROW_NUMBER()`, standardizes country names, and classifies every row (cancellation, adjustment, stock write-off, non-product, product sale). Gold builds three marts with **CTE chains and window functions** (`NTILE`, `LAG`, running `SUM() OVER`). All transforms run in one transaction.
+
+![load_log after the full load and a rerun](docs/img/load-log.png)
+*`ops.load_log` after the full load from Azure: one audited load per file.*
+
+---
+
+## Design decisions
+
+| Decision | Why |
+| --- | --- |
+| **Profile before writing validation rules** | Rules written blind either miss real problems or reject valid data. Profiling all 1M rows first ([`scripts/profile_data.py`](scripts/profile_data.py)) grounded every rule in evidence |
+| **Validation rejects broken data; staging classifies valid-but-different data** | Cancellations, stock write-offs and postage lines are real business events. Quarantining them would hide activity; flagging them lets each mart decide what to include |
+| **One transaction per file** | A crash at chunk 7 of 11 leaves **no** partial data, and a rerun starts clean |
+| **ETag-based load log** | Unchanged files are skipped; changed files (new ETag) are replaced, never duplicated |
+| **Postgres `COPY` instead of row-by-row inserts** | The bulk-load path. The pipeline is I/O-bound (~25% CPU), so the next speed-up would be parallel file loads or running closer to the data, not faster Python |
+| **Lineage on every row** (`source_blob`, `load_id`) | Any row traces back to the exact file and run that produced it |
+| **`NUMERIC` for money** | Exact decimals. Floats drift when summing a million prices |
+| **Identity-based access (Entra ID + RBAC)** | No storage keys exist anywhere in code, config or CI. Access is least-privilege, scoped to one storage account |
+| **Same Docker Compose file locally and in CI** | "Works on my machine" and "works in CI" are the same claim |
+| **Azurite emulator** | Tests, CI and reviewers run everything with no cloud account or cost |
+| **Flag the partial final month** | The data ends Dec 9, 2011, and an unflagged December looks like a 58% crash |
+
+---
+
+## Findings from the data
+
+- **Strong Q4 seasonality.** Revenue climbs every September–November, peaking at **$1.43M (Nov 2010)** and **$1.45M (Nov 2011)**, followed by a post-holiday slump each January–February.
+- **Guests buy less.** Purchases without a customer ID are **23% of rows but only 13% of revenue** ($2.57M of $19.64M).
+- **The most valuable customers are also the most active.** The top five by spend all score **555** (most recent, most frequent, highest spending). One customer placed **373 orders**.
+- **Customers return about every 112 days** on average.
+- **The data is structurally clean but semantically messy.** Zero rows failed validation, yet 34,335 were exact duplicates, 19,104 were cancellations, 3,393 were stock write-offs, and 5,981 were postage, fees or manual entries rather than products.
+
+---
+
+## Testing and CI
+
+| Suite | Tests | Proves |
+| --- | --- | --- |
+| Validation | 16 | Valid-but-unusual rows pass; each broken-data rule fires; rows in = valid + quarantined |
+| Extract (Azurite) | 2 | Only data files are listed; uneven chunk boundaries are read correctly |
+| Load (Postgres) | 4 | Skip if unchanged, replace if changed, **full rollback on a mid-file crash**, quarantine with reason |
+| SQL transforms | 6 | Hand-calculated answers for dedupe, classification and all three marts, plus revenue reconciliation; run inside a rolled-back transaction |
+| Smoke | 1 | Package imports |
+
+**On every pull request**, GitHub Actions installs from the lockfile, runs Ruff, starts Postgres and Azurite with `docker compose`, runs all 29 tests, then runs the pipeline end to end and verifies data reached bronze, silver and gold. `main` is protected, so nothing merges unless CI passes. Every commit also passes pre-commit hooks: Ruff, **gitleaks** secret scanning, YAML/TOML checks and a 1 MB file-size guard.
+
+![GitHub Actions runs](docs/img/ci-runs.png)
 
 ---
 
 ## Engineering notes
 
-Short write-ups of real problems solved along the way:
+Real problems solved along the way:
 
-- **Editable install silently ignored on macOS.** Python 3.12 skips `.pth` files flagged as hidden, and iCloud Desktop sync was setting that flag on the project's install link, so `import tillflow_retail_etl` failed even though the package built. Diagnosed with `ls -lO`, fixed by moving the project out of iCloud-synced storage.
-- **Secrets never touch the repo.** Cloud access uses the developer's Entra ID login rather than account keys, and gitleaks blocks any commit that contains a credential.
+- **Editable install silently ignored on macOS.** Python 3.12 skips `.pth` files flagged as hidden, and iCloud Desktop sync was setting that flag, so the package built but wouldn't import. Diagnosed with `ls -lO`; fixed by moving the project out of iCloud-synced storage.
+- **"Azure CLI not found" from Python.** The CLI was installed as a shell *alias*, which subprocesses can't see. `DefaultAzureCredential` searches `PATH`, so I replaced the alias with a symlink in `~/.local/bin`.
+- **Misleading "SubscriptionNotFound."** New Azure subscriptions must register each resource provider (`Microsoft.Storage`) before first use; Azure reports the missing registration as a missing subscription.
+- **Region restrictions.** The student subscription only allows a few regions, so storage lives in West US. In production I'd keep data in a Canadian region for data residency.
+- **Emulator behind the SDK.** The Azure SDK used a newer storage API version than Azurite supported; fixed with `--skipApiVersionCheck`, standard when local emulators lag cloud SDKs.
+- **Port clash.** A container stuck in `Created` status revealed a local Postgres already holding port 5432; the project's database runs on 5433.
 
-- **Azure CLI not found” from Python.** The CLI was installed as a shell alias, which subprocesses can’t see. DefaultAzureCredential looks for az on PATH, so I replaced the alias with a symlink in ~/.local/bin
+
+The full phase-by-phase story, including each phase's measurements and decisions, is in the **[build log](docs/BUILD_LOG.md)**.
 
 ---
 
-## What's next
+## Project structure
 
-Phase 2: create the Azure Data Lake (resource group, storage account with hierarchical namespace, `raw/` and `landing/` containers, role-based access) and upload the dataset.
+```
+tillflow-retail-etl/
+├── .github/workflows/ci.yml   # lint, all tests, end-to-end run
+├── docker-compose.yml         # Postgres 16 + Azurite
+├── Makefile                   # make all / etl / transform / test ...
+├── src/tillflow_retail_etl/
+│   ├── config.py              # settings from env / .env
+│   ├── storage.py             # Azure or Azurite connection (one place for auth)
+│   ├── extract.py             # list, download, chunk
+│   ├── validate.py            # pandera schema + quarantine split
+│   ├── load.py                # COPY, load log, transactions
+│   ├── transform.py           # runs the SQL layers
+│   └── pipeline.py            # extract -> validate -> load
+├── sql/
+│   ├── ddl/                   # schemas and tables (idempotent)
+│   ├── staging/               # silver: dedupe, clean, classify
+│   └── marts/                 # gold: RFM, purchase gaps, monthly revenue
+├── scripts/                   # convert_xlsx, profile_data, seed_azurite
+├── tests/
+│   ├── fixtures/              # 100-row real sample
+│   ├── integration/           # extract, load, SQL transforms
+│   └── test_validate.py       # validation rules
+└── docs/img/                  # screenshots
+```
+
+---
+
+## Tech stack
+
+| Area | Tools |
+| --- | --- |
+| Cloud | Azure Data Lake Storage Gen2, Microsoft Entra ID (RBAC), Azure CLI, Cost Management |
+| Pipeline | Python 3.12, pandas, pandera, psycopg 3 |
+| Database | PostgreSQL 16, SQL (CTEs, window functions) |
+| Infrastructure | Docker Compose, Azurite |
+| Quality | pytest, Ruff, pre-commit, gitleaks |
+| CI | GitHub Actions |
+| Tooling | uv (lockfile), Make |
+
+---
+
+## What I'd do next
+
+- **Orchestrate** scheduled runs (Azure Data Factory or a GitHub Actions cron)
+- **Parallelize** file loads; the pipeline is I/O-bound
+- **Rebuild the transforms in dbt** for lineage docs and built-in tests
+- **Power BI dashboard** on the gold tables
+- **Managed database** (Azure Database for PostgreSQL) in a Canadian region
+
+---
+
+## Dataset
+
+[**Online Retail II**](https://archive.ics.uci.edu/dataset/502/online+retail+ii), UCI Machine Learning Repository: 1,067,371 transactions from a UK-based online retailer, December 2009 to December 2011. Licensed CC BY 4.0. The dataset is not committed to this repo; `.gitignore` and the pre-commit file-size guard keep it out.
 
 ---
 
 ## Author
 
-**Yinka Kolawole** — Data Science, Simon Fraser University
-[GitHub](https://github.com/yinkak)
+**Yinka Kolawole** · Data Science, Simon Fraser University · [GitHub](https://github.com/yinkak)
